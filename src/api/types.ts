@@ -46,9 +46,30 @@ export interface Coupon {
 export interface Customer {
   id: string;
   email: string;
+  username?: string;
   name?: string;
+  phone?: string;
+  role?: string;
+  customer_tier?: string;
+  total_spent?: number;
+  loyalty_points?: number;
   created_at: string;
   last_sign_in_at?: string;
+}
+
+export interface Product {
+  id: string;
+  name: string;
+  description: string;
+  price: number;
+  currency: string;
+  category: string;
+  image: string;
+  in_stock: boolean;
+  stock_label?: string;
+  features?: string[];
+  created_at: string;
+  updated_at: string;
 }
 
 export interface SupplierProduct {

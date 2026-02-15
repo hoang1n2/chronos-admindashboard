@@ -4,13 +4,15 @@ import TodayOrders from './pages/TodayOrders';
 import OrderHistory from './pages/OrderHistory';
 import DiscountCoupons from './pages/DiscountCoupons';
 import CustomerInfo from './pages/CustomerInfo';
+import ProductManagement from './pages/ProductManagement';
 import SupplierMonitor from './pages/SupplierMonitor';
 
-type AdminPage = 'today-orders' | 'order-history' | 'discount-coupons' | 'customer-info' | 'supplier-monitor';
+type AdminPage = 'today-orders' | 'order-history' | 'discount-coupons' | 'customer-info' | 'product-management' | 'supplier-monitor';
 
 const NAV_ITEMS: { key: AdminPage; label: string; icon: string }[] = [
   { key: 'today-orders', label: 'Đơn Hàng Hôm Nay', icon: 'fa-shopping-cart' },
   { key: 'order-history', label: 'Lịch Sử Mua Hàng', icon: 'fa-history' },
+  { key: 'product-management', label: 'Quản Lý Sản Phẩm', icon: 'fa-box' },
   { key: 'discount-coupons', label: 'Phiếu Giảm Giá', icon: 'fa-tag' },
   { key: 'customer-info', label: 'Thông Tin Khách Hàng', icon: 'fa-users' },
   { key: 'supplier-monitor', label: 'Theo Dõi Nhà Cung Cấp', icon: 'fa-eye' },
@@ -19,6 +21,7 @@ const NAV_ITEMS: { key: AdminPage; label: string; icon: string }[] = [
 const PAGE_TITLES: Record<AdminPage, { title: string; subtitle: string }> = {
   'today-orders': { title: 'Đơn Hàng Hôm Nay', subtitle: 'Quản lý và theo dõi đơn hàng mới trong ngày' },
   'order-history': { title: 'Lịch Sử Mua Hàng', subtitle: 'Xem lại toàn bộ lịch sử đơn hàng' },
+  'product-management': { title: 'Quản Lý Sản Phẩm', subtitle: 'Thêm, sửa, xóa và quản lý tất cả sản phẩm' },
   'discount-coupons': { title: 'Phiếu Giảm Giá', subtitle: 'Tạo và quản lý mã giảm giá' },
   'customer-info': { title: 'Thông Tin Khách Hàng', subtitle: 'Thông tin khách hàng đã đăng ký' },
   'supplier-monitor': { title: 'Theo Dõi Nhà Cung Cấp', subtitle: 'Giám sát giá, tồn kho và dịch vụ mới' },
@@ -98,6 +101,7 @@ export default function AdminLayout() {
         <div className="admin-content">
           {activePage === 'today-orders' && <TodayOrders />}
           {activePage === 'order-history' && <OrderHistory />}
+          {activePage === 'product-management' && <ProductManagement />}
           {activePage === 'discount-coupons' && <DiscountCoupons />}
           {activePage === 'customer-info' && <CustomerInfo />}
           {activePage === 'supplier-monitor' && <SupplierMonitor />}
