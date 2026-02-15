@@ -1,34 +1,29 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { apiGet, apiPost, apiPut, apiDelete } from '../../api/client';
+import { apiGet, apiPost, apiPut } from '../../api/client';
 import type { Product } from '../../api/types';
 
-const CATEGORIES = [
-  'Streaming', 'Design', 'Produtividade', 'IA',
-  'Desenvolvimento', 'Website', 'Hosting', 'Outros',
+// Service definitions matching the website sidebar
+const SERVICES = [
+  { key: 'youtube', name: 'Youtube Premium', icon: 'fa-brands fa-youtube', color: '#FF0000' },
+  { key: 'capcut', name: 'Capcut Pro', icon: 'fa-solid fa-scissors', color: '#000000' },
+  { key: 'canva', name: 'Canva Pro', icon: 'fa-solid fa-palette', color: '#00C4CC' },
+  { key: 'veo3', name: 'Google Veo3 Ultra', icon: 'fa-solid fa-video', color: '#4285F4' },
+  { key: 'gemini', name: 'Google Gemini Pro', icon: 'fa-solid fa-sparkles', color: '#886FBF' },
+  { key: 'chatgpt', name: 'ChatGPT Plus', icon: 'fa-solid fa-robot', color: '#10A37F' },
+  { key: 'cursor', name: 'Cursor Pro', icon: 'fa-solid fa-code', color: '#6366F1' },
+  { key: 'website', name: 'Website Profissional', icon: 'fa-solid fa-globe', color: '#3B82F6' },
+  { key: 'hosting', name: 'Hosting Web', icon: 'fa-solid fa-server', color: '#F59E0B' },
+  { key: 'microsoft', name: 'Microsoft Office', icon: 'fa-brands fa-microsoft', color: '#D83B01' },
+  { key: 'desktop', name: 'Desktop App', icon: 'fa-solid fa-desktop', color: '#64748B' },
 ];
-
-const DEFAULT_PRODUCT: Omit<Product, 'id' | 'created_at' | 'updated_at'> = {
-  name: '',
-  description: '',
-  price: 0,
-  currency: 'EUR',
-  category: 'Outros',
-  image: '',
-  in_stock: true,
-  stock_label: 'Disponível',
-  features: [],
-};
 
 export default function ProductManagement() {
   const [products, setProducts] = useState<Product[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filterCategory, setFilterCategory] = useState('all');
-  const [filterStock, setFilterStock] = useState('all');
-  const [showModal, setShowModal] = useState(false);
+  const [isSeeding, setIsSeeding] = useState(false);
+  const [selectedService, setSelectedService] = useState<string | null>(null);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
-  const [formData, setFormData] = useState(DEFAULT_PRODUCT);
-  const [featuresInput, setFeaturesInput] = useState('');
+  const [editForm, setEditForm] = useState({ price: 0, in_stock: true, features: '' });
   const [isSaving, setIsSaving] = useState(false);
   const isFirstLoadRef = useRef(true);
 
@@ -42,19 +37,24 @@ export default function ProductManagement() {
 
       const all: Product[] = (data.products || []).map((p: Record<string, unknown>) => ({
         id: String(p.id ?? p._id ?? ''),
+        product_id: (p.product_id ?? '') as string,
         name: (p.name ?? '') as string,
         description: (p.description ?? '') as string,
         price: typeof p.price === 'number' ? p.price : 0,
-        currency: (p.currency ?? 'EUR') as string,
-        category: (p.category ?? 'Outros') as string,
+        currency: (p.currency ?? 'USD') as string,
+        category: (p.category ?? '') as string,
+        service: (p.service ?? '') as string,
+        service_icon: (p.service_icon ?? '') as string,
         image: (p.image ?? '') as string,
         in_stock: p.in_stock !== false,
-        stock_label: (p.stock_label ?? '') as string,
+        popular: p.popular === true,
+        sort_order: typeof p.sort_order === 'number' ? p.sort_order : 0,
         features: Array.isArray(p.features) ? p.features as string[] : [],
         created_at: (p.created_at ?? new Date().toISOString()) as string,
         updated_at: (p.updated_at ?? new Date().toISOString()) as string,
       }));
 
+      all.sort((a, b) => a.sort_order - b.sort_order);
       setProducts(all);
     } catch (err) {
       console.error('Error:', err);
@@ -70,62 +70,51 @@ export default function ProductManagement() {
     return () => clearInterval(interval);
   }, [loadProducts]);
 
-  const filteredProducts = products.filter(p => {
-    if (searchTerm.trim()) {
-      const q = searchTerm.toLowerCase();
-      if (!p.name.toLowerCase().includes(q) && !p.description.toLowerCase().includes(q) && !p.category.toLowerCase().includes(q)) {
-        return false;
+  const handleSeedProducts = async () => {
+    if (!confirm('Sincronizar todos os produtos do website para a base de dados? (Isto irá substituir os produtos existentes)')) return;
+    setIsSeeding(true);
+    try {
+      const res = await apiPost('/api/products/seed', {});
+      const data = await res.json();
+      if (data.success) {
+        alert(`Sucesso! ${data.count} produtos sincronizados.`);
+        loadProducts();
+      } else {
+        alert('Erro: ' + (data.message || 'Falha na sincronização'));
       }
+    } catch (err) {
+      console.error('Error seeding:', err);
+      alert('Erro ao sincronizar produtos');
+    } finally {
+      setIsSeeding(false);
     }
-    if (filterCategory !== 'all' && p.category !== filterCategory) return false;
-    if (filterStock === 'in_stock' && !p.in_stock) return false;
-    if (filterStock === 'out_of_stock' && p.in_stock) return false;
-    return true;
-  });
-
-  const openCreateModal = () => {
-    setEditingProduct(null);
-    setFormData({ ...DEFAULT_PRODUCT });
-    setFeaturesInput('');
-    setShowModal(true);
   };
 
   const openEditModal = (product: Product) => {
     setEditingProduct(product);
-    setFormData({
-      name: product.name,
-      description: product.description,
+    setEditForm({
       price: product.price,
-      currency: product.currency,
-      category: product.category,
-      image: product.image,
       in_stock: product.in_stock,
-      stock_label: product.stock_label || '',
-      features: product.features || [],
+      features: (product.features || []).join('\n'),
     });
-    setFeaturesInput((product.features || []).join('\n'));
-    setShowModal(true);
   };
 
-  const handleSave = async () => {
-    if (!formData.name.trim()) return alert('Vui lòng nhập tên sản phẩm');
+  const handleSaveEdit = async () => {
+    if (!editingProduct) return;
     setIsSaving(true);
-
     try {
-      const features = featuresInput.split('\n').map(f => f.trim()).filter(Boolean);
-      const payload = { ...formData, features };
-
-      if (editingProduct) {
-        await apiPut('/api/products/manage', { id: editingProduct.id, ...payload });
-      } else {
-        await apiPost('/api/products/manage', payload);
-      }
-
-      setShowModal(false);
+      const features = editForm.features.split('\n').map(f => f.trim()).filter(Boolean);
+      await apiPut('/api/products/manage', {
+        id: editingProduct.id,
+        price: editForm.price,
+        in_stock: editForm.in_stock,
+        features,
+      });
+      setEditingProduct(null);
       loadProducts();
     } catch (err) {
-      console.error('Error saving product:', err);
-      alert('Lỗi khi lưu sản phẩm');
+      console.error('Error saving:', err);
+      alert('Erro ao guardar alterações');
     } finally {
       setIsSaving(false);
     }
@@ -136,7 +125,6 @@ export default function ProductManagement() {
       await apiPut('/api/products/manage', {
         id: product.id,
         in_stock: !product.in_stock,
-        stock_label: !product.in_stock ? 'Disponível' : 'Esgotado',
       });
       loadProducts();
     } catch (err) {
@@ -144,24 +132,26 @@ export default function ProductManagement() {
     }
   };
 
-  const handleDelete = async (product: Product) => {
-    if (!confirm(`Xóa sản phẩm "${product.name}"?`)) return;
-    try {
-      await apiDelete('/api/products/manage', { body: JSON.stringify({ id: product.id }) });
-      loadProducts();
-    } catch (err) {
-      console.error('Error:', err);
-    }
+  const formatPrice = (amount: number) => {
+    if (amount === 0) return 'Contactar';
+    return `$${amount.toFixed(2)}`;
   };
 
-  const formatCurrency = (amount: number, currency: string) => {
-    if (amount === 0) return 'Liên hệ';
-    return new Intl.NumberFormat('pt-PT', { style: 'currency', currency: currency || 'EUR' }).format(amount);
-  };
+  // Group products by service
+  const serviceProducts = SERVICES.map(svc => ({
+    ...svc,
+    products: products.filter(p => p.category === svc.key),
+    inStock: products.filter(p => p.category === svc.key && p.in_stock).length,
+    outOfStock: products.filter(p => p.category === svc.key && !p.in_stock).length,
+  }));
 
-  const inStockCount = products.filter(p => p.in_stock).length;
-  const outOfStockCount = products.filter(p => !p.in_stock).length;
-  const uniqueCategories = [...new Set(products.map(p => p.category))];
+  const selectedServiceData = selectedService
+    ? serviceProducts.find(s => s.key === selectedService)
+    : null;
+
+  const totalProducts = products.length;
+  const totalInStock = products.filter(p => p.in_stock).length;
+  const totalOutOfStock = products.filter(p => !p.in_stock).length;
 
   return (
     <div className="page-container">
@@ -169,203 +159,262 @@ export default function ProductManagement() {
       <div className="stats-grid">
         <div className="stat-card">
           <div className="stat-icon" style={{ background: '#6366f1' }}><i className="fas fa-box" /></div>
-          <div><div className="stat-label">Tổng Sản Phẩm</div><div className="stat-value">{products.length}</div></div>
+          <div><div className="stat-label">TOTAL PRODUTOS</div><div className="stat-value">{totalProducts}</div></div>
         </div>
         <div className="stat-card">
           <div className="stat-icon" style={{ background: '#10b981' }}><i className="fas fa-check-circle" /></div>
-          <div><div className="stat-label">Còn Hàng</div><div className="stat-value">{inStockCount}</div></div>
+          <div><div className="stat-label">DISPONÍVEL</div><div className="stat-value">{totalInStock}</div></div>
         </div>
         <div className="stat-card">
           <div className="stat-icon" style={{ background: '#ef4444' }}><i className="fas fa-times-circle" /></div>
-          <div><div className="stat-label">Hết Hàng</div><div className="stat-value">{outOfStockCount}</div></div>
+          <div><div className="stat-label">ESGOTADO</div><div className="stat-value">{totalOutOfStock}</div></div>
         </div>
         <div className="stat-card">
           <div className="stat-icon" style={{ background: '#f59e0b' }}><i className="fas fa-layer-group" /></div>
-          <div><div className="stat-label">Danh Mục</div><div className="stat-value">{uniqueCategories.length}</div></div>
+          <div><div className="stat-label">SERVIÇOS</div><div className="stat-value">{SERVICES.length}</div></div>
         </div>
       </div>
 
-      {/* Actions */}
+      {/* Sync Button */}
       <div className="actions-bar">
         <div className="actions-left">
-          <button onClick={openCreateModal} className="btn-primary">
-            <i className="fas fa-plus" /> Thêm Sản Phẩm
-          </button>
-          <input
-            type="text"
-            className="search-input"
-            placeholder="Tìm sản phẩm..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-          <select value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)} className="filter-select">
-            <option value="all">Tất cả danh mục</option>
-            {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
-          <select value={filterStock} onChange={(e) => setFilterStock(e.target.value)} className="filter-select">
-            <option value="all">Tất cả</option>
-            <option value="in_stock">Còn hàng</option>
-            <option value="out_of_stock">Hết hàng</option>
-          </select>
+          {totalProducts === 0 && (
+            <button onClick={handleSeedProducts} disabled={isSeeding} className="btn-primary">
+              <i className={`fas ${isSeeding ? 'fa-spinner fa-spin' : 'fa-sync'}`} />
+              {isSeeding ? ' A sincronizar...' : ' Sincronizar Produtos do Website'}
+            </button>
+          )}
+          {totalProducts > 0 && (
+            <button onClick={handleSeedProducts} disabled={isSeeding} className="btn-refresh" title="Re-sincronizar produtos">
+              <i className={`fas ${isSeeding ? 'fa-spinner fa-spin' : 'fa-sync'}`} />
+              {isSeeding ? ' A sincronizar...' : ' Re-sincronizar'}
+            </button>
+          )}
+          {selectedService && (
+            <button onClick={() => setSelectedService(null)} className="btn-refresh">
+              <i className="fas fa-arrow-left" /> Voltar aos serviços
+            </button>
+          )}
         </div>
         <div className="actions-right">
-          <span className="filter-info">{filteredProducts.length} sản phẩm</span>
+          <span className="filter-info">{totalProducts} produtos em {SERVICES.length} serviços</span>
         </div>
       </div>
 
-      {/* Modal */}
-      {showModal && (
-        <div className="modal-overlay" onClick={() => setShowModal(false)}>
-          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: 560 }}>
+      {/* Edit Modal */}
+      {editingProduct && (
+        <div className="modal-overlay" onClick={() => setEditingProduct(null)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: 500 }}>
             <div className="modal-header">
-              <h2>{editingProduct ? 'Chỉnh Sửa Sản Phẩm' : 'Thêm Sản Phẩm Mới'}</h2>
-              <button onClick={() => setShowModal(false)} className="modal-close">×</button>
+              <h2>Editar Produto</h2>
+              <button onClick={() => setEditingProduct(null)} className="modal-close">×</button>
             </div>
             <div className="modal-body">
+              <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 16, padding: 12, background: 'var(--bg)', borderRadius: 8 }}>
+                {editingProduct.image && (
+                  <img src={editingProduct.image} alt="" style={{ width: 40, height: 40, borderRadius: 8, objectFit: 'cover' }} />
+                )}
+                <div>
+                  <div style={{ fontWeight: 600 }}>{editingProduct.name}</div>
+                  <div style={{ fontSize: '.85rem', color: 'var(--text-muted)' }}>{editingProduct.service}</div>
+                </div>
+              </div>
               <div className="form-group">
-                <label>Tên Sản Phẩm *</label>
+                <label>Preço (USD) — 0 = Contactar</label>
                 <input
-                  value={formData.name}
-                  onChange={e => setFormData({ ...formData, name: e.target.value })}
-                  placeholder="VD: Youtube Premium (1 Mês)"
+                  type="number"
+                  value={editForm.price}
+                  onChange={e => setEditForm({ ...editForm, price: parseFloat(e.target.value) || 0 })}
+                  min="0"
+                  step="0.01"
                 />
               </div>
               <div className="form-group">
-                <label>Mô Tả</label>
+                <label>Estado</label>
+                <select
+                  value={editForm.in_stock ? 'true' : 'false'}
+                  onChange={e => setEditForm({ ...editForm, in_stock: e.target.value === 'true' })}
+                >
+                  <option value="true">Disponível</option>
+                  <option value="false">Esgotado</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label>Funcionalidades (uma por linha)</label>
                 <textarea
-                  value={formData.description}
-                  onChange={e => setFormData({ ...formData, description: e.target.value })}
-                  placeholder="Mô tả sản phẩm..."
-                  rows={3}
-                  style={{ resize: 'vertical' }}
-                />
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-                <div className="form-group">
-                  <label>Giá (0 = Liên hệ)</label>
-                  <input
-                    type="number"
-                    value={formData.price}
-                    onChange={e => setFormData({ ...formData, price: parseFloat(e.target.value) || 0 })}
-                    min="0"
-                    step="0.01"
-                  />
-                </div>
-                <div className="form-group">
-                  <label>Tiền Tệ</label>
-                  <select value={formData.currency} onChange={e => setFormData({ ...formData, currency: e.target.value })}>
-                    <option value="EUR">EUR (€)</option>
-                    <option value="USD">USD ($)</option>
-                    <option value="BRL">BRL (R$)</option>
-                  </select>
-                </div>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-                <div className="form-group">
-                  <label>Danh Mục</label>
-                  <select value={formData.category} onChange={e => setFormData({ ...formData, category: e.target.value })}>
-                    {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label>Tình Trạng</label>
-                  <select
-                    value={formData.in_stock ? 'true' : 'false'}
-                    onChange={e => setFormData({ ...formData, in_stock: e.target.value === 'true' })}
-                  >
-                    <option value="true">Còn hàng</option>
-                    <option value="false">Hết hàng</option>
-                  </select>
-                </div>
-              </div>
-              <div className="form-group">
-                <label>URL Hình Ảnh</label>
-                <input
-                  value={formData.image}
-                  onChange={e => setFormData({ ...formData, image: e.target.value })}
-                  placeholder="https://..."
-                />
-              </div>
-              <div className="form-group">
-                <label>Tính Năng (mỗi dòng 1 tính năng)</label>
-                <textarea
-                  value={featuresInput}
-                  onChange={e => setFeaturesInput(e.target.value)}
-                  placeholder="Tính năng 1&#10;Tính năng 2&#10;Tính năng 3"
-                  rows={4}
+                  value={editForm.features}
+                  onChange={e => setEditForm({ ...editForm, features: e.target.value })}
+                  rows={5}
                   style={{ resize: 'vertical' }}
                 />
               </div>
             </div>
             <div className="modal-footer">
-              <button onClick={() => setShowModal(false)} className="btn-secondary">Hủy</button>
-              <button onClick={handleSave} disabled={isSaving} className="btn-primary">
-                {isSaving ? <><i className="fas fa-spinner fa-spin" /> Đang lưu...</> : editingProduct ? 'Cập Nhật' : 'Tạo Sản Phẩm'}
+              <button onClick={() => setEditingProduct(null)} className="btn-secondary">Cancelar</button>
+              <button onClick={handleSaveEdit} disabled={isSaving} className="btn-primary">
+                {isSaving ? <><i className="fas fa-spinner fa-spin" /> A guardar...</> : 'Guardar Alterações'}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Products Grid */}
+      {/* Content */}
       {isLoading ? (
-        <div className="loading-state"><i className="fas fa-spinner fa-spin" /><p>Đang tải sản phẩm...</p></div>
-      ) : filteredProducts.length === 0 ? (
+        <div className="loading-state"><i className="fas fa-spinner fa-spin" /><p>A carregar produtos...</p></div>
+      ) : totalProducts === 0 ? (
         <div className="empty-state">
           <i className="fas fa-box-open" />
-          <p>{searchTerm || filterCategory !== 'all' || filterStock !== 'all' ? 'Không tìm thấy sản phẩm phù hợp' : 'Chưa có sản phẩm nào'}</p>
-          {!searchTerm && filterCategory === 'all' && (
-            <button onClick={openCreateModal} className="btn-primary" style={{ marginTop: 12 }}>
-              <i className="fas fa-plus" /> Thêm Sản Phẩm Đầu Tiên
-            </button>
-          )}
+          <p>Nenhum produto na base de dados</p>
+          <p className="empty-hint">Clique em "Sincronizar Produtos do Website" para importar todos os serviços e planos.</p>
+          <button onClick={handleSeedProducts} disabled={isSeeding} className="btn-primary" style={{ marginTop: 16 }}>
+            <i className={`fas ${isSeeding ? 'fa-spinner fa-spin' : 'fa-sync'}`} />
+            {isSeeding ? ' A sincronizar...' : ' Sincronizar Produtos do Website'}
+          </button>
         </div>
-      ) : (
-        <div className="products-grid">
-          {filteredProducts.map((p) => (
-            <div key={p.id} className={`product-card ${!p.in_stock ? 'out-of-stock' : ''}`}>
-              <div className="product-header">
-                {p.image ? (
-                  <img src={p.image} alt={p.name} className="product-image" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+      ) : !selectedService ? (
+        /* Services Grid */
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
+          {serviceProducts.map(svc => (
+            <div
+              key={svc.key}
+              onClick={() => setSelectedService(svc.key)}
+              style={{
+                background: 'var(--bg-card)',
+                border: '1px solid var(--border)',
+                borderRadius: 'var(--radius)',
+                padding: 20,
+                cursor: 'pointer',
+                transition: 'all .2s',
+                boxShadow: 'var(--shadow)',
+              }}
+              onMouseEnter={e => {
+                (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-2px)';
+                (e.currentTarget as HTMLDivElement).style.borderColor = svc.color;
+              }}
+              onMouseLeave={e => {
+                (e.currentTarget as HTMLDivElement).style.transform = 'none';
+                (e.currentTarget as HTMLDivElement).style.borderColor = 'var(--border)';
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 14 }}>
+                {svc.products[0]?.image ? (
+                  <img
+                    src={svc.products[0].image}
+                    alt={svc.name}
+                    style={{ width: 44, height: 44, borderRadius: 10, objectFit: 'cover' }}
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                  />
                 ) : (
-                  <div className="product-image" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f1f5f9', color: '#94a3b8', fontSize: '1.2rem' }}>
-                    <i className="fas fa-box" />
+                  <div style={{ width: 44, height: 44, borderRadius: 10, background: svc.color + '15', color: svc.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem' }}>
+                    <i className={svc.icon} />
                   </div>
                 )}
                 <div>
-                  <div className="product-title">{p.name}</div>
-                  <div className="product-subtitle">{p.category}</div>
+                  <div style={{ fontWeight: 600, fontSize: '1rem' }}>{svc.name}</div>
+                  <div style={{ fontSize: '.85rem', color: 'var(--text-muted)' }}>{svc.products.length} planos</div>
                 </div>
               </div>
-              <div className="product-body">
-                {p.description && <div style={{ fontSize: '.85rem', color: '#64748b', lineHeight: 1.4 }}>{p.description.substring(0, 100)}{p.description.length > 100 ? '...' : ''}</div>}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div className="product-price">{formatCurrency(p.price, p.currency)}</div>
-                  <span className={`stock-badge ${p.in_stock ? 'in-stock' : 'out-of-stock'}`}>
-                    {p.in_stock ? (p.stock_label || 'Disponível') : (p.stock_label || 'Esgotado')}
+              <div style={{ display: 'flex', gap: 8 }}>
+                <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: '.75rem', fontWeight: 600, background: '#10b98115', color: '#10b981' }}>
+                  {svc.inStock} disponível
+                </span>
+                {svc.outOfStock > 0 && (
+                  <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: '.75rem', fontWeight: 600, background: '#ef444415', color: '#ef4444' }}>
+                    {svc.outOfStock} esgotado
                   </span>
-                </div>
-                {p.features && p.features.length > 0 && (
-                  <div style={{ fontSize: '.8rem', color: '#64748b' }}>
-                    {p.features.slice(0, 3).map((f, i) => (
-                      <div key={i}>• {f}</div>
-                    ))}
-                    {p.features.length > 3 && <div>+{p.features.length - 3} tính năng khác</div>}
-                  </div>
                 )}
               </div>
-              <div className="product-actions">
-                <button onClick={() => openEditModal(p)} className="btn-sm"><i className="fas fa-edit" /> Sửa</button>
-                <button onClick={() => handleToggleStock(p)} className="btn-sm">
-                  <i className={`fas ${p.in_stock ? 'fa-toggle-on' : 'fa-toggle-off'}`} />
-                  {p.in_stock ? 'Hết hàng' : 'Còn hàng'}
-                </button>
-                <button onClick={() => handleDelete(p)} className="btn-sm btn-danger"><i className="fas fa-trash" /></button>
+              <div style={{ marginTop: 12, fontSize: '.85rem', color: 'var(--text-dim)' }}>
+                {svc.products.length > 0
+                  ? `${formatPrice(Math.min(...svc.products.filter(p => p.price > 0).map(p => p.price)))} — ${formatPrice(Math.max(...svc.products.map(p => p.price)))}`
+                  : 'Sem planos'}
               </div>
             </div>
           ))}
         </div>
-      )}
+      ) : selectedServiceData ? (
+        /* Service Plans Table */
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 20 }}>
+            {selectedServiceData.products[0]?.image && (
+              <img
+                src={selectedServiceData.products[0].image}
+                alt={selectedServiceData.name}
+                style={{ width: 48, height: 48, borderRadius: 12, objectFit: 'cover' }}
+              />
+            )}
+            <div>
+              <h2 style={{ margin: 0, fontSize: '1.25rem' }}>{selectedServiceData.name}</h2>
+              <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '.9rem' }}>
+                {selectedServiceData.products.length} planos · {selectedServiceData.inStock} disponível · {selectedServiceData.outOfStock} esgotado
+              </p>
+            </div>
+          </div>
+
+          <div className="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>Plano</th>
+                  <th>Preço</th>
+                  <th>Estado</th>
+                  <th>Popular</th>
+                  <th>Funcionalidades</th>
+                  <th>Ações</th>
+                </tr>
+              </thead>
+              <tbody>
+                {selectedServiceData.products.map(p => (
+                  <tr key={p.id} style={{ opacity: p.in_stock ? 1 : 0.6 }}>
+                    <td>
+                      <div style={{ fontWeight: 500 }}>{p.name}</div>
+                    </td>
+                    <td>
+                      <span style={{ fontWeight: 600, color: p.price === 0 ? 'var(--warning)' : 'var(--text)' }}>
+                        {formatPrice(p.price)}
+                      </span>
+                    </td>
+                    <td>
+                      <span
+                        className={`status-badge ${p.in_stock ? 'status-completed' : 'status-cancelled'}`}
+                        style={{ cursor: 'pointer' }}
+                        onClick={() => handleToggleStock(p)}
+                        title="Clique para alternar"
+                      >
+                        {p.in_stock ? 'Disponível' : 'Esgotado'}
+                      </span>
+                    </td>
+                    <td>
+                      {p.popular && <span style={{ color: '#f59e0b' }}><i className="fas fa-star" /> Popular</span>}
+                    </td>
+                    <td>
+                      <div style={{ fontSize: '.8rem', color: 'var(--text-muted)', maxWidth: 300 }}>
+                        {p.features.slice(0, 2).join(' · ')}
+                        {p.features.length > 2 && ` +${p.features.length - 2}`}
+                      </div>
+                    </td>
+                    <td>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button onClick={() => openEditModal(p)} className="btn-sm" title="Editar">
+                          <i className="fas fa-edit" />
+                        </button>
+                        <button
+                          onClick={() => handleToggleStock(p)}
+                          className="btn-sm"
+                          title={p.in_stock ? 'Marcar esgotado' : 'Marcar disponível'}
+                        >
+                          <i className={`fas ${p.in_stock ? 'fa-toggle-on' : 'fa-toggle-off'}`} style={{ color: p.in_stock ? '#10b981' : '#ef4444' }} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

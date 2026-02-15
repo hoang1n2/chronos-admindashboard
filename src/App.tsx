@@ -7,12 +7,12 @@ function AppContent() {
   const { isAuthenticated, isLoading } = useAuth();
 
   if (isLoading) {
-    return (
+  return (
       <div className="login-page">
         <div style={{ textAlign: 'center', color: '#94a3b8' }}>
           <i className="fas fa-spinner fa-spin" style={{ fontSize: '2rem' }} />
           <p style={{ marginTop: 16 }}>Đang kiểm tra đăng nhập...</p>
-        </div>
+      </div>
       </div>
     );
   }

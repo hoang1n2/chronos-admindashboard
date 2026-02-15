@@ -59,15 +59,19 @@ export interface Customer {
 
 export interface Product {
   id: string;
+  product_id: string;
   name: string;
-  description: string;
+  description?: string;
   price: number;
-  currency: string;
+  currency?: string;
   category: string;
+  service: string;
+  service_icon: string;
   image: string;
   in_stock: boolean;
-  stock_label?: string;
-  features?: string[];
+  popular: boolean;
+  sort_order: number;
+  features: string[];
   created_at: string;
   updated_at: string;
 }
