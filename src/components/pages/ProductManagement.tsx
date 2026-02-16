@@ -25,6 +25,13 @@ export default function ProductManagement() {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [editForm, setEditForm] = useState({ price: 0, in_stock: true, features: '' });
   const [isSaving, setIsSaving] = useState(false);
+  
+  // Add Service/Package Modal States
+  const [isAddServiceModalOpen, setIsAddServiceModalOpen] = useState(false);
+  const [isAddPackageModalOpen, setIsAddPackageModalOpen] = useState(false);
+  const [newServiceForm, setNewServiceForm] = useState({ name: '', category: '', description: '', image: '' });
+  const [newPackageForm, setNewPackageForm] = useState({ name: '', price: 0, features: '' });
+  
   const isFirstLoadRef = useRef(true);
 
   const loadProducts = useCallback(async () => {
@@ -137,6 +144,77 @@ export default function ProductManagement() {
     return `$${amount.toFixed(2)}`;
   };
 
+  // Open Add Service Modal
+  const openAddServiceModal = () => {
+    setNewServiceForm({ name: '', category: '', description: '', image: '' });
+    setIsAddServiceModalOpen(true);
+  };
+
+  // Open Add Package Modal
+  const openAddPackageModal = () => {
+    setNewPackageForm({ name: '', price: 0, features: '' });
+    setIsAddPackageModalOpen(true);
+  };
+
+  // Handle Add New Service
+  const handleAddService = async () => {
+    if (!newServiceForm.name || !newServiceForm.category) {
+      alert('Vui lòng nhập tên và danh mục dịch vụ');
+      return;
+    }
+    try {
+      const res = await apiPost('/api/services/admin', {
+        id: `service-${Date.now()}`,
+        ...newServiceForm,
+        is_active: true,
+        packages: [],
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert('Thêm dịch vụ thành công!');
+        setIsAddServiceModalOpen(false);
+        loadProducts();
+      } else {
+        alert('Lỗi: ' + (data.message || 'Không thể thêm dịch vụ'));
+      }
+    } catch (err) {
+      console.error('Error adding service:', err);
+      alert('Lỗi khi thêm dịch vụ');
+    }
+  };
+
+  // Handle Add New Package
+  const handleAddPackage = async () => {
+    if (!selectedService || !newPackageForm.name) {
+      alert('Vui lòng nhập tên gói');
+      return;
+    }
+    try {
+      const features = newPackageForm.features.split('\n').map(f => f.trim()).filter(Boolean);
+      const res = await apiPost('/api/services/admin', {
+        id: selectedService,
+        packages: [{
+          id: `package-${Date.now()}`,
+          name: newPackageForm.name,
+          price: newPackageForm.price,
+          features,
+          outOfStock: false,
+        }],
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert('Thêm gói dịch vụ thành công!');
+        setIsAddPackageModalOpen(false);
+        loadProducts();
+      } else {
+        alert('Lỗi: ' + (data.message || 'Không thể thêm gói'));
+      }
+    } catch (err) {
+      console.error('Error adding package:', err);
+      alert('Lỗi khi thêm gói dịch vụ');
+    }
+  };
+
   // Group products by service
   const serviceProducts = SERVICES.map(svc => ({
     ...svc,
@@ -175,21 +253,33 @@ export default function ProductManagement() {
         </div>
       </div>
 
-      {/* Sync Button */}
+      {/* Actions Bar */}
       <div className="actions-bar">
         <div className="actions-left">
-          {totalProducts === 0 && (
-            <button onClick={handleSeedProducts} disabled={isSeeding} className="btn-primary">
-              <i className={`fas ${isSeeding ? 'fa-spinner fa-spin' : 'fa-sync'}`} />
-              {isSeeding ? ' A sincronizar...' : ' Sincronizar Produtos do Website'}
-            </button>
+          {/* Level 1: Service List */}
+          {!selectedService && (
+            <>
+              {totalProducts === 0 && (
+                <button onClick={handleSeedProducts} disabled={isSeeding} className="btn-primary">
+                  <i className={`fas ${isSeeding ? 'fa-spinner fa-spin' : 'fa-sync'}`} />
+                  {isSeeding ? ' A sincronizar...' : ' Sincronizar Produtos do Website'}
+                </button>
+              )}
+              {totalProducts > 0 && (
+                <>
+                  <button onClick={handleSeedProducts} disabled={isSeeding} className="btn-refresh" title="Re-sincronizar produtos">
+                    <i className={`fas ${isSeeding ? 'fa-spinner fa-spin' : 'fa-sync'}`} />
+                    {isSeeding ? ' A sincronizar...' : ' Re-sincronizar'}
+                  </button>
+                  <button onClick={openAddServiceModal} className="btn-primary" title="Thêm Dịch Vụ Mới">
+                    <i className="fas fa-plus" /> Thêm Dịch Vụ Mới
+                  </button>
+                </>
+              )}
+            </>
           )}
-          {totalProducts > 0 && (
-            <button onClick={handleSeedProducts} disabled={isSeeding} className="btn-refresh" title="Re-sincronizar produtos">
-              <i className={`fas ${isSeeding ? 'fa-spinner fa-spin' : 'fa-sync'}`} />
-              {isSeeding ? ' A sincronizar...' : ' Re-sincronizar'}
-            </button>
-          )}
+          
+          {/* Level 2: Service Details */}
           {selectedService && (
             <button onClick={() => setSelectedService(null)} className="btn-refresh">
               <i className="fas fa-arrow-left" /> Voltar aos serviços
@@ -200,6 +290,15 @@ export default function ProductManagement() {
           <span className="filter-info">{totalProducts} produtos em {SERVICES.length} serviços</span>
         </div>
       </div>
+
+      {/* Add Package Button - Only show in Level 2 */}
+      {selectedService && selectedServiceData && (
+        <div style={{ marginBottom: 20 }}>
+          <button onClick={openAddPackageModal} className="btn-primary">
+            <i className="fas fa-plus" /> Thêm Các gói của dịch vụ
+          </button>
+        </div>
+      )}
 
       {/* Edit Modal */}
       {editingProduct && (
@@ -253,6 +352,110 @@ export default function ProductManagement() {
               <button onClick={() => setEditingProduct(null)} className="btn-secondary">Cancelar</button>
               <button onClick={handleSaveEdit} disabled={isSaving} className="btn-primary">
                 {isSaving ? <><i className="fas fa-spinner fa-spin" /> A guardar...</> : 'Guardar Alterações'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Service Modal */}
+      {isAddServiceModalOpen && (
+        <div className="modal-overlay" onClick={() => setIsAddServiceModalOpen(false)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: 500 }}>
+            <div className="modal-header">
+              <h2>Thêm Dịch Vụ Mới</h2>
+              <button onClick={() => setIsAddServiceModalOpen(false)} className="modal-close">×</button>
+            </div>
+            <div className="modal-body">
+              <div className="form-group">
+                <label>Tên dịch vụ</label>
+                <input
+                  type="text"
+                  value={newServiceForm.name}
+                  onChange={e => setNewServiceForm({ ...newServiceForm, name: e.target.value })}
+                  placeholder="VD: Youtube Premium"
+                />
+              </div>
+              <div className="form-group">
+                <label>Danh mục</label>
+                <input
+                  type="text"
+                  value={newServiceForm.category}
+                  onChange={e => setNewServiceForm({ ...newServiceForm, category: e.target.value })}
+                  placeholder="VD: youtube"
+                />
+              </div>
+              <div className="form-group">
+                <label>Mô tả</label>
+                <textarea
+                  value={newServiceForm.description}
+                  onChange={e => setNewServiceForm({ ...newServiceForm, description: e.target.value })}
+                  rows={3}
+                  placeholder="Mô tả dịch vụ..."
+                />
+              </div>
+              <div className="form-group">
+                <label>URL hình ảnh</label>
+                <input
+                  type="url"
+                  value={newServiceForm.image}
+                  onChange={e => setNewServiceForm({ ...newServiceForm, image: e.target.value })}
+                  placeholder="https://..."
+                />
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button onClick={() => setIsAddServiceModalOpen(false)} className="btn-secondary">Hủy</button>
+              <button onClick={handleAddService} className="btn-primary">
+                <i className="fas fa-plus" /> Thêm Dịch Vụ
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Package Modal */}
+      {isAddPackageModalOpen && selectedServiceData && (
+        <div className="modal-overlay" onClick={() => setIsAddPackageModalOpen(false)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: 500 }}>
+            <div className="modal-header">
+              <h2>Thêm Các gói của dịch vụ - {selectedServiceData.name}</h2>
+              <button onClick={() => setIsAddPackageModalOpen(false)} className="modal-close">×</button>
+            </div>
+            <div className="modal-body">
+              <div className="form-group">
+                <label>Tên gói</label>
+                <input
+                  type="text"
+                  value={newPackageForm.name}
+                  onChange={e => setNewPackageForm({ ...newPackageForm, name: e.target.value })}
+                  placeholder="VD: Premium (1 Tháng)"
+                />
+              </div>
+              <div className="form-group">
+                <label>Giá (USD)</label>
+                <input
+                  type="number"
+                  value={newPackageForm.price}
+                  onChange={e => setNewPackageForm({ ...newPackageForm, price: parseFloat(e.target.value) || 0 })}
+                  min="0"
+                  step="0.01"
+                />
+              </div>
+              <div className="form-group">
+                <label>Tính năng (mỗi dòng một)</label>
+                <textarea
+                  value={newPackageForm.features}
+                  onChange={e => setNewPackageForm({ ...newPackageForm, features: e.target.value })}
+                  rows={5}
+                  placeholder="Tính năng 1&#10;Tính năng 2&#10;Tính năng 3"
+                />
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button onClick={() => setIsAddPackageModalOpen(false)} className="btn-secondary">Hủy</button>
+              <button onClick={handleAddPackage} className="btn-primary">
+                <i className="fas fa-plus" /> Thêm Gói
               </button>
             </div>
           </div>

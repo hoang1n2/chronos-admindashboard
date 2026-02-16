@@ -9,12 +9,16 @@ export default function CustomerInfo() {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [searchTerm, setSearchTerm] = useState('');
+  const [totalRevenue, setTotalRevenue] = useState(0);
+  const [todayRevenue, setTodayRevenue] = useState(0);
   const perPage = 20;
   const isFirstLoadRef = useRef(true);
 
   const load = useCallback(async () => {
     try {
       if (isFirstLoadRef.current) setIsLoading(true);
+      
+      // Load customers
       const res = await apiGet('/api/customers/list');
       if (!res.ok) throw new Error('Failed');
       const data = await res.json();
@@ -34,11 +38,40 @@ export default function CustomerInfo() {
         last_sign_in_at: c.last_sign_in_at as string | undefined,
       }));
 
-      all.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      // Calculate total revenue from customers' spending
+      const totalRev = all.reduce((sum, c) => sum + (c.total_spent || 0), 0);
+      setTotalRevenue(totalRev);
 
+      // Calculate today's new customers
       const now = new Date();
       const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate() + 1);
+      
+      const todayCustomers = all.filter(c => { 
+        const d = new Date(c.created_at); 
+        return d >= today && d < tomorrow; 
+      });
+      setTodayCount(todayCustomers.length);
+
+      // Today's revenue (from orders API)
+      try {
+        const ordersRes = await apiGet('/api/orders/list');
+        if (ordersRes.ok) {
+          const ordersData = await ordersRes.json();
+          if (ordersData.success && Array.isArray(ordersData.orders)) {
+            const todayOrders = ordersData.orders.filter((o: any) => {
+              const orderDate = new Date(o.created_at || o.orderDate);
+              return orderDate >= today && orderDate < tomorrow;
+            });
+            const todayRev = todayOrders.reduce((sum: number, o: any) => sum + (o.total || 0), 0);
+            setTodayRevenue(todayRev);
+          }
+        }
+      } catch (e) {
+        console.log('Could not load orders:', e);
+      }
+
+      all.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
       setTodayCount(all.filter(c => { const d = new Date(c.created_at); return d >= today && d < tomorrow; }).length);
 
       // Filter by search
@@ -91,6 +124,14 @@ export default function CustomerInfo() {
         <div className="stat-card">
           <div className="stat-icon" style={{ background: '#10b981' }}><i className="fas fa-user-plus" /></div>
           <div><div className="stat-label">Mới Hôm Nay</div><div className="stat-value">{todayCount}</div></div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-icon" style={{ background: '#f59e0b' }}><i className="fas fa-dollar-sign" /></div>
+          <div><div className="stat-label">Tổng Doanh Thu</div><div className="stat-value">${totalRevenue.toFixed(2)}</div></div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-icon" style={{ background: '#ec4899' }}><i className="fas fa-calendar-day" /></div>
+          <div><div className="stat-label">Doanh Thu Hôm Nay</div><div className="stat-value">${todayRevenue.toFixed(2)}</div></div>
         </div>
       </div>
 
