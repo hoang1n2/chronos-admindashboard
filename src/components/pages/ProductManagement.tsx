@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { apiGet, apiPost, apiPut } from '../../api/client';
+import { apiGet, apiPost, apiPut, apiDelete } from '../../api/client';
 import type { Product } from '../../api/types';
 
 // Service definitions matching the website sidebar
@@ -31,6 +31,15 @@ export default function ProductManagement() {
   const [isAddPackageModalOpen, setIsAddPackageModalOpen] = useState(false);
   const [newServiceForm, setNewServiceForm] = useState({ name: '', category: '', description: '', image: '' });
   const [newPackageForm, setNewPackageForm] = useState({ name: '', price: 0, features: '' });
+  
+  // Confirm dialog states
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    type: 'toggle' | 'delete';
+    product: Product | null;
+    title: string;
+    message: string;
+  }>({ isOpen: false, type: 'toggle', product: null, title: '', message: '' });
   
   const isFirstLoadRef = useRef(true);
 
@@ -127,15 +136,52 @@ export default function ProductManagement() {
     }
   };
 
-  const handleToggleStock = async (product: Product) => {
+  // Show confirm dialog before toggling stock
+  const confirmToggleStock = (product: Product) => {
+    const newStatus = !product.in_stock;
+    setConfirmDialog({
+      isOpen: true,
+      type: 'toggle',
+      product,
+      title: newStatus ? 'Ativar produto?' : 'Desativar produto?',
+      message: newStatus
+        ? `Tem certeza que deseja marcar "${product.name}" como disponível? O produto será mostrado como disponível no website.`
+        : `Tem certeza que deseja marcar "${product.name}" como esgotado? O produto será mostrado como "Esgotado" no website.`,
+    });
+  };
+
+  // Show confirm dialog before deleting
+  const confirmDeleteProduct = (product: Product) => {
+    setConfirmDialog({
+      isOpen: true,
+      type: 'delete',
+      product,
+      title: 'Eliminar produto?',
+      message: `Tem certeza que deseja eliminar "${product.name}" permanentemente? Esta ação não pode ser desfeita.`,
+    });
+  };
+
+  // Execute confirm action
+  const handleConfirmAction = async () => {
+    if (!confirmDialog.product) return;
+    
     try {
-      await apiPut('/api/products/manage', {
-        id: product.id,
-        in_stock: !product.in_stock,
-      });
+      if (confirmDialog.type === 'toggle') {
+        await apiPut('/api/products/manage', {
+          id: confirmDialog.product.id,
+          in_stock: !confirmDialog.product.in_stock,
+        });
+      } else if (confirmDialog.type === 'delete') {
+        await apiDelete('/api/products/manage', {
+          body: JSON.stringify({ id: confirmDialog.product.id }),
+        });
+      }
       loadProducts();
     } catch (err) {
       console.error('Error:', err);
+      alert('Ocorreu um erro. Tente novamente.');
+    } finally {
+      setConfirmDialog({ isOpen: false, type: 'toggle', product: null, title: '', message: '' });
     }
   };
 
@@ -352,6 +398,45 @@ export default function ProductManagement() {
               <button onClick={() => setEditingProduct(null)} className="btn-secondary">Cancelar</button>
               <button onClick={handleSaveEdit} disabled={isSaving} className="btn-primary">
                 {isSaving ? <><i className="fas fa-spinner fa-spin" /> A guardar...</> : 'Guardar Alterações'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirm Dialog */}
+      {confirmDialog.isOpen && (
+        <div className="modal-overlay" onClick={() => setConfirmDialog({ ...confirmDialog, isOpen: false })}>
+          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: 420, textAlign: 'center' }}>
+            <div style={{ padding: '30px 20px 10px' }}>
+              <div style={{
+                fontSize: '3rem',
+                marginBottom: 16,
+              }}>
+                {confirmDialog.type === 'delete' ? '🗑️' : (confirmDialog.product?.in_stock ? '⏸️' : '▶️')}
+              </div>
+              <h2 style={{ margin: '0 0 12px', fontSize: '1.25rem' }}>{confirmDialog.title}</h2>
+              <p style={{ margin: '0 0 24px', color: 'var(--text-muted)', fontSize: '.9rem', lineHeight: 1.5 }}>
+                {confirmDialog.message}
+              </p>
+            </div>
+            <div className="modal-footer" style={{ justifyContent: 'center', gap: 12 }}>
+              <button
+                onClick={() => setConfirmDialog({ ...confirmDialog, isOpen: false })}
+                className="btn-secondary"
+                style={{ minWidth: 100 }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleConfirmAction}
+                className="btn-primary"
+                style={{
+                  minWidth: 100,
+                  backgroundColor: confirmDialog.type === 'delete' ? '#dc2626' : undefined,
+                }}
+              >
+                {confirmDialog.type === 'delete' ? 'Eliminar' : 'Confirmar'}
               </button>
             </div>
           </div>
@@ -582,7 +667,7 @@ export default function ProductManagement() {
                       <span
                         className={`status-badge ${p.in_stock ? 'status-completed' : 'status-cancelled'}`}
                         style={{ cursor: 'pointer' }}
-                        onClick={() => handleToggleStock(p)}
+                        onClick={() => confirmToggleStock(p)}
                         title="Clique para alternar"
                       >
                         {p.in_stock ? 'Disponível' : 'Esgotado'}
@@ -603,11 +688,19 @@ export default function ProductManagement() {
                           <i className="fas fa-edit" />
                         </button>
                         <button
-                          onClick={() => handleToggleStock(p)}
+                          onClick={() => confirmToggleStock(p)}
                           className="btn-sm"
                           title={p.in_stock ? 'Marcar esgotado' : 'Marcar disponível'}
                         >
                           <i className={`fas ${p.in_stock ? 'fa-toggle-on' : 'fa-toggle-off'}`} style={{ color: p.in_stock ? '#10b981' : '#ef4444' }} />
+                        </button>
+                        <button
+                          onClick={() => confirmDeleteProduct(p)}
+                          className="btn-sm"
+                          title="Eliminar produto"
+                          style={{ color: '#dc2626' }}
+                        >
+                          <i className="fas fa-trash" />
                         </button>
                       </div>
                     </td>

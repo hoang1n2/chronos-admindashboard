@@ -2,11 +2,17 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { apiGet } from '../../api/client';
 import type { SupplierProduct, DashboardNotification } from '../../api/types';
 
+// Configured suppliers
+const SUPPLIERS = [
+  { name: 'MTD Shop', url: 'https://mtdshop247.com/', icon: '🛒' },
+  { name: 'Genz Shop', url: 'https://genzshop.vn/', icon: '🛍️' },
+];
+
 export default function SupplierMonitor() {
   const [products, setProducts] = useState<SupplierProduct[]>([]);
   const [notifications, setNotifications] = useState<DashboardNotification[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'products' | 'notifications' | 'history'>('products');
+  const [activeTab, setActiveTab] = useState<'suppliers' | 'products' | 'notifications'>('suppliers');
   const isFirstLoadRef = useRef(true);
 
   const loadData = useCallback(async () => {
@@ -80,8 +86,11 @@ export default function SupplierMonitor() {
 
       {/* Tabs */}
       <div className="tabs">
+        <button className={`tab ${activeTab === 'suppliers' ? 'active' : ''}`} onClick={() => setActiveTab('suppliers')}>
+          <i className="fas fa-store" /> Nhà Cung Cấp
+        </button>
         <button className={`tab ${activeTab === 'products' ? 'active' : ''}`} onClick={() => setActiveTab('products')}>
-          <i className="fas fa-box" /> Sản Phẩm
+          <i className="fas fa-box" /> Sản Phẩm ({products.length})
         </button>
         <button className={`tab ${activeTab === 'notifications' ? 'active' : ''}`} onClick={() => setActiveTab('notifications')}>
           <i className="fas fa-bell" /> Thông Báo {unreadCount > 0 && <span className="tab-badge">{unreadCount}</span>}
@@ -91,12 +100,52 @@ export default function SupplierMonitor() {
       {/* Content */}
       {isLoading ? (
         <div className="loading-state"><i className="fas fa-spinner fa-spin" /><p>Đang tải dữ liệu nhà cung cấp...</p></div>
+      ) : activeTab === 'suppliers' ? (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 16 }}>
+          {SUPPLIERS.map(s => {
+            const supplierProducts = products.filter(p => p.supplier === s.name);
+            const inStock = supplierProducts.filter(p => p.in_stock).length;
+            const outOfStock = supplierProducts.filter(p => !p.in_stock).length;
+            return (
+              <div key={s.name} style={{
+                background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius)',
+                padding: 24, boxShadow: 'var(--shadow)',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 16 }}>
+                  <span style={{ fontSize: '2rem' }}>{s.icon}</span>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: '1.1rem' }}>{s.name}</div>
+                    <a href={s.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: '.85rem', color: 'var(--primary)' }}>
+                      {s.url} <i className="fas fa-external-link-alt" style={{ fontSize: '.7rem' }} />
+                    </a>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
+                  <span style={{ padding: '4px 12px', borderRadius: 20, fontSize: '.8rem', fontWeight: 600, background: '#10b98115', color: '#10b981' }}>
+                    {inStock} còn hàng
+                  </span>
+                  <span style={{ padding: '4px 12px', borderRadius: 20, fontSize: '.8rem', fontWeight: 600, background: '#ef444415', color: '#ef4444' }}>
+                    {outOfStock} hết hàng
+                  </span>
+                  <span style={{ padding: '4px 12px', borderRadius: 20, fontSize: '.8rem', fontWeight: 600, background: '#3b82f615', color: '#3b82f6' }}>
+                    {supplierProducts.length} sản phẩm
+                  </span>
+                </div>
+                <div style={{ fontSize: '.85rem', color: 'var(--text-muted)' }}>
+                  {supplierProducts.length === 0
+                    ? 'Chưa có dữ liệu. Hệ thống sẽ quét tự động.'
+                    : `Lần kiểm tra cuối: ${formatDate(supplierProducts[0]?.last_checked || '')}`}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       ) : activeTab === 'products' ? (
         products.length === 0 ? (
           <div className="empty-state">
             <i className="fas fa-eye" />
             <p>Chưa có sản phẩm nào được theo dõi</p>
-            <p className="empty-hint">Hệ thống sẽ tự động quét nhà cung cấp 5 lần/ngày và cập nhật tại đây.</p>
+            <p className="empty-hint">Hệ thống sẽ tự động quét nhà cung cấp ({SUPPLIERS.map(s => s.name).join(', ')}) và cập nhật tại đây.</p>
           </div>
         ) : (
           <div className="table-container">
