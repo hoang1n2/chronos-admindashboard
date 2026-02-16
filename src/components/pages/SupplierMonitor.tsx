@@ -1,17 +1,19 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { apiGet } from '../../api/client';
+import { apiGet, apiPost } from '../../api/client';
 import type { SupplierProduct, DashboardNotification } from '../../api/types';
 
 // Configured suppliers
 const SUPPLIERS = [
-  { name: 'MTD Shop', url: 'https://mtdshop247.com/', icon: '🛒' },
-  { name: 'Genz Shop', url: 'https://genzshop.vn/', icon: '🛍️' },
+  { name: 'MTD Shop', key: 'mtdshop', url: 'https://mtdshop247.com/', icon: '🛒' },
+  { name: 'Genz Shop', key: 'genzshop', url: 'https://genzshop.vn/', icon: '🛍️' },
 ];
 
 export default function SupplierMonitor() {
   const [products, setProducts] = useState<SupplierProduct[]>([]);
   const [notifications, setNotifications] = useState<DashboardNotification[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isScanning, setIsScanning] = useState(false);
+  const [scanResult, setScanResult] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'suppliers' | 'products' | 'notifications'>('suppliers');
   const isFirstLoadRef = useRef(true);
 
@@ -46,14 +48,47 @@ export default function SupplierMonitor() {
 
   useEffect(() => {
     loadData();
-    const interval = setInterval(loadData, 30000); // Check every 30s
+    const interval = setInterval(loadData, 30000);
     return () => clearInterval(interval);
   }, [loadData]);
 
+  // Scan suppliers
+  const handleScan = async (supplierKey?: string) => {
+    setIsScanning(true);
+    setScanResult(null);
+    try {
+      const res = await apiPost('/api/supplier/scan', supplierKey ? { supplier: supplierKey } : {});
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) {
+          setScanResult(data.message);
+          // Reload data after scan
+          await loadData();
+          // Switch to products tab to see results
+          setActiveTab('products');
+        } else {
+          setScanResult('Lỗi: ' + (data.message || 'Không thể quét'));
+        }
+      } else {
+        setScanResult('Lỗi kết nối API');
+      }
+    } catch (err) {
+      console.error('Scan error:', err);
+      setScanResult('Lỗi: Không thể kết nối đến API');
+    } finally {
+      setIsScanning(false);
+      // Clear result after 5s
+      setTimeout(() => setScanResult(null), 5000);
+    }
+  };
+
   const unreadCount = notifications.filter(n => !n.read).length;
 
-  const formatDate = (d: string) =>
-    new Date(d).toLocaleString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  const formatDate = (d: string) => {
+    try {
+      return new Date(d).toLocaleString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    } catch { return '—'; }
+  };
 
   const getChangeIcon = (product: SupplierProduct) => {
     if (product.is_new) return '🆕';
@@ -84,10 +119,49 @@ export default function SupplierMonitor() {
         </div>
       </div>
 
+      {/* Scan Bar */}
+      <div className="actions-bar">
+        <div className="actions-left">
+          <button
+            onClick={() => handleScan()}
+            disabled={isScanning}
+            className="btn-primary"
+          >
+            <i className={`fas ${isScanning ? 'fa-spinner fa-spin' : 'fa-search'}`} />
+            {isScanning ? ' Đang quét...' : ' Quét tất cả nhà cung cấp'}
+          </button>
+          {SUPPLIERS.map(s => (
+            <button
+              key={s.key}
+              onClick={() => handleScan(s.key)}
+              disabled={isScanning}
+              className="btn-refresh"
+              title={`Quét ${s.name}`}
+            >
+              {s.icon} {s.name}
+            </button>
+          ))}
+        </div>
+        <div className="actions-right">
+          {scanResult && (
+            <span style={{
+              padding: '6px 14px',
+              borderRadius: 8,
+              fontSize: '.85rem',
+              fontWeight: 500,
+              background: scanResult.startsWith('Lỗi') ? '#fee2e2' : '#dcfce7',
+              color: scanResult.startsWith('Lỗi') ? '#dc2626' : '#16a34a',
+            }}>
+              {scanResult}
+            </span>
+          )}
+        </div>
+      </div>
+
       {/* Tabs */}
       <div className="tabs">
         <button className={`tab ${activeTab === 'suppliers' ? 'active' : ''}`} onClick={() => setActiveTab('suppliers')}>
-          <i className="fas fa-store" /> Nhà Cung Cấp
+          <i className="fas fa-store" /> Nhà Cung Cấp ({SUPPLIERS.length})
         </button>
         <button className={`tab ${activeTab === 'products' ? 'active' : ''}`} onClick={() => setActiveTab('products')}>
           <i className="fas fa-box" /> Sản Phẩm ({products.length})
@@ -106,6 +180,13 @@ export default function SupplierMonitor() {
             const supplierProducts = products.filter(p => p.supplier === s.name);
             const inStock = supplierProducts.filter(p => p.in_stock).length;
             const outOfStock = supplierProducts.filter(p => !p.in_stock).length;
+            const lastChecked = supplierProducts.length > 0
+              ? supplierProducts.reduce((latest, p) => {
+                  const pDate = new Date(p.last_checked).getTime();
+                  return pDate > new Date(latest).getTime() ? p.last_checked : latest;
+                }, supplierProducts[0].last_checked)
+              : null;
+
             return (
               <div key={s.name} style={{
                 background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius)',
@@ -113,28 +194,39 @@ export default function SupplierMonitor() {
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 16 }}>
                   <span style={{ fontSize: '2rem' }}>{s.icon}</span>
-                  <div>
+                  <div style={{ flex: 1 }}>
                     <div style={{ fontWeight: 700, fontSize: '1.1rem' }}>{s.name}</div>
                     <a href={s.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: '.85rem', color: 'var(--primary)' }}>
                       {s.url} <i className="fas fa-external-link-alt" style={{ fontSize: '.7rem' }} />
                     </a>
                   </div>
+                  <button
+                    onClick={() => handleScan(s.key)}
+                    disabled={isScanning}
+                    className="btn-sm"
+                    title={`Quét ${s.name}`}
+                    style={{ padding: '8px 14px' }}
+                  >
+                    <i className={`fas ${isScanning ? 'fa-spinner fa-spin' : 'fa-sync'}`} />
+                  </button>
                 </div>
-                <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
-                  <span style={{ padding: '4px 12px', borderRadius: 20, fontSize: '.8rem', fontWeight: 600, background: '#10b98115', color: '#10b981' }}>
-                    {inStock} còn hàng
-                  </span>
-                  <span style={{ padding: '4px 12px', borderRadius: 20, fontSize: '.8rem', fontWeight: 600, background: '#ef444415', color: '#ef4444' }}>
-                    {outOfStock} hết hàng
-                  </span>
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
                   <span style={{ padding: '4px 12px', borderRadius: 20, fontSize: '.8rem', fontWeight: 600, background: '#3b82f615', color: '#3b82f6' }}>
                     {supplierProducts.length} sản phẩm
                   </span>
+                  <span style={{ padding: '4px 12px', borderRadius: 20, fontSize: '.8rem', fontWeight: 600, background: '#10b98115', color: '#10b981' }}>
+                    {inStock} còn hàng
+                  </span>
+                  {outOfStock > 0 && (
+                    <span style={{ padding: '4px 12px', borderRadius: 20, fontSize: '.8rem', fontWeight: 600, background: '#ef444415', color: '#ef4444' }}>
+                      {outOfStock} hết hàng
+                    </span>
+                  )}
                 </div>
                 <div style={{ fontSize: '.85rem', color: 'var(--text-muted)' }}>
-                  {supplierProducts.length === 0
-                    ? 'Chưa có dữ liệu. Hệ thống sẽ quét tự động.'
-                    : `Lần kiểm tra cuối: ${formatDate(supplierProducts[0]?.last_checked || '')}`}
+                  {lastChecked
+                    ? `Lần quét cuối: ${formatDate(lastChecked)}`
+                    : 'Chưa quét. Nhấn nút quét để bắt đầu.'}
                 </div>
               </div>
             );
@@ -143,9 +235,18 @@ export default function SupplierMonitor() {
       ) : activeTab === 'products' ? (
         products.length === 0 ? (
           <div className="empty-state">
-            <i className="fas fa-eye" />
+            <i className="fas fa-search" />
             <p>Chưa có sản phẩm nào được theo dõi</p>
-            <p className="empty-hint">Hệ thống sẽ tự động quét nhà cung cấp ({SUPPLIERS.map(s => s.name).join(', ')}) và cập nhật tại đây.</p>
+            <p className="empty-hint">Nhấn nút "Quét tất cả nhà cung cấp" ở trên để bắt đầu quét.</p>
+            <button
+              onClick={() => handleScan()}
+              disabled={isScanning}
+              className="btn-primary"
+              style={{ marginTop: 16 }}
+            >
+              <i className={`fas ${isScanning ? 'fa-spinner fa-spin' : 'fa-search'}`} />
+              {isScanning ? ' Đang quét...' : ' Quét ngay'}
+            </button>
           </div>
         ) : (
           <div className="table-container">
@@ -172,10 +273,10 @@ export default function SupplierMonitor() {
                       </a>
                     </td>
                     <td className={`cell-price ${p.price_changed ? 'price-changed' : ''}`}>
-                      {p.price > 0 ? `${p.price} ${p.currency}` : 'N/A'}
+                      {p.price > 0 ? `${p.price.toLocaleString()} ${p.currency}` : 'N/A'}
                     </td>
                     <td className="cell-prev-price">
-                      {p.previous_price && p.previous_price !== p.price ? `${p.previous_price} ${p.currency}` : '—'}
+                      {p.previous_price && p.previous_price !== p.price ? `${p.previous_price.toLocaleString()} ${p.currency}` : '—'}
                     </td>
                     <td>
                       <span className={`stock-badge ${p.in_stock ? 'in-stock' : 'out-of-stock'}`}>
