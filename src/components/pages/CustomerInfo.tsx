@@ -3,7 +3,7 @@ import { apiGet } from '../../api/client';
 import type { Customer } from '../../api/types';
 
 export default function CustomerInfo() {
-  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [customers, setCustomers] = useState<(Customer & { has_duplicate_email?: boolean })[]>([]);
   const [todayCount, setTodayCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
@@ -11,6 +11,7 @@ export default function CustomerInfo() {
   const [searchTerm, setSearchTerm] = useState('');
   const [totalRevenue, setTotalRevenue] = useState(0);
   const [todayRevenue, setTodayRevenue] = useState(0);
+  const [duplicateCount, setDuplicateCount] = useState(0);
   const perPage = 20;
   const isFirstLoadRef = useRef(true);
 
@@ -24,7 +25,7 @@ export default function CustomerInfo() {
       const data = await res.json();
       if (!data.success) throw new Error('Invalid');
 
-      let all: Customer[] = (data.customers || []).map((c: Record<string, unknown>) => ({
+      let all: (Customer & { has_duplicate_email?: boolean })[] = (data.customers || []).map((c: Record<string, unknown>) => ({
         id: String(c.id ?? c._id ?? ''),
         email: (c.email ?? '') as string,
         username: (c.username ?? '') as string,
@@ -36,7 +37,31 @@ export default function CustomerInfo() {
         loyalty_points: typeof c.loyalty_points === 'number' ? c.loyalty_points : 0,
         created_at: (c.created_at ?? new Date().toISOString()) as string,
         last_sign_in_at: c.last_sign_in_at as string | undefined,
+        has_duplicate_email: false,
       }));
+
+      // Detect duplicate emails
+      const emailCountMap = new Map<string, number>();
+      all.forEach(c => {
+        if (c.email) {
+          const normalizedEmail = c.email.toLowerCase().trim();
+          emailCountMap.set(normalizedEmail, (emailCountMap.get(normalizedEmail) || 0) + 1);
+        }
+      });
+      const duplicateEmails = new Set(
+        Array.from(emailCountMap.entries())
+          .filter(([, count]) => count > 1)
+          .map(([email]) => email)
+      );
+
+      // Mark customers with duplicate emails
+      all = all.map(c => ({
+        ...c,
+        has_duplicate_email: duplicateEmails.has(c.email?.toLowerCase().trim() || ''),
+      }));
+
+      // Count unique duplicate emails
+      setDuplicateCount(duplicateEmails.size);
 
       // Calculate total revenue from customers' spending
       const totalRev = all.reduce((sum, c) => sum + (c.total_spent || 0), 0);
@@ -133,6 +158,12 @@ export default function CustomerInfo() {
           <div className="stat-icon" style={{ background: '#ec4899' }}><i className="fas fa-calendar-day" /></div>
           <div><div className="stat-label">Doanh Thu Hôm Nay</div><div className="stat-value">${todayRevenue.toFixed(2)}</div></div>
         </div>
+        {duplicateCount > 0 && (
+          <div className="stat-card" style={{ border: '2px solid #f59e0b' }}>
+            <div className="stat-icon" style={{ background: '#f59e0b' }}><i className="fas fa-exclamation-triangle" /></div>
+            <div><div className="stat-label">Email Trùng Lặp</div><div className="stat-value">{duplicateCount}</div></div>
+          </div>
+        )}
       </div>
 
       <div className="actions-bar">
@@ -168,12 +199,16 @@ export default function CustomerInfo() {
                   <th>Tổng Chi</th>
                   <th>Ngày Đăng Ký</th>
                   <th>Đăng Nhập Cuối</th>
+                  <th>Trùng</th>
                 </tr>
               </thead>
               <tbody>
                 {customers.map(c => (
-                  <tr key={c.id}>
-                    <td>{c.email || '—'}</td>
+                  <tr key={c.id} style={c.has_duplicate_email ? { backgroundColor: 'rgba(245,158,11,0.1)' } : undefined}>
+                    <td>
+                      {c.email || '—'}
+                      {c.has_duplicate_email && <span className="badge-warning" style={{ marginLeft: 8, fontSize: '.7rem' }}>TRÙNG</span>}
+                    </td>
                     <td>{c.name || '—'}</td>
                     <td style={{ fontFamily: 'monospace', fontSize: '.85rem' }}>{c.username || '—'}</td>
                     <td>{c.phone || '—'}</td>
@@ -181,6 +216,11 @@ export default function CustomerInfo() {
                     <td className="cell-total">{c.total_spent ? `€${c.total_spent.toFixed(2)}` : '€0.00'}</td>
                     <td>{formatDate(c.created_at)}</td>
                     <td>{c.last_sign_in_at ? formatDate(c.last_sign_in_at) : '—'}</td>
+                    <td>
+                      {c.has_duplicate_email ? (
+                        <span style={{ color: '#d97706', fontSize: '.85rem' }}><i className="fas fa-exclamation-triangle" /> Trùng</span>
+                      ) : '—'}
+                    </td>
                   </tr>
                 ))}
               </tbody>

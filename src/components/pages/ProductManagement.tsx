@@ -82,7 +82,7 @@ export default function ProductManagement() {
 
   useEffect(() => {
     loadProducts();
-    const interval = setInterval(loadProducts, 30000);
+    const interval = setInterval(loadProducts, 10000);
     return () => clearInterval(interval);
   }, [loadProducts]);
 
