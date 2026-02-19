@@ -118,8 +118,21 @@ export default function ProductManagement() {
   const handleSaveEdit = async () => {
     if (!editingProduct) return;
     setIsSaving(true);
+    
+    const features = editForm.features.split('\n').map(f => f.trim()).filter(Boolean);
+    const updatedProduct = {
+      ...editingProduct,
+      price: editForm.price,
+      in_stock: editForm.in_stock,
+      features,
+    };
+    
+    // Optimistic update - update UI immediately
+    setProducts(prev => prev.map(p => 
+      p.id === editingProduct.id ? updatedProduct : p
+    ));
+    
     try {
-      const features = editForm.features.split('\n').map(f => f.trim()).filter(Boolean);
       await apiPut('/api/products/manage', {
         id: editingProduct.id,
         price: editForm.price,
@@ -127,9 +140,9 @@ export default function ProductManagement() {
         features,
       });
       setEditingProduct(null);
-      loadProducts();
     } catch (err) {
       console.error('Error saving:', err);
+      loadProducts(); // Revert on error
       alert('Erro ao guardar alterações');
     } finally {
       setIsSaving(false);
@@ -165,20 +178,31 @@ export default function ProductManagement() {
   const handleConfirmAction = async () => {
     if (!confirmDialog.product) return;
     
+    const productId = confirmDialog.product.id;
+    const newStockStatus = !confirmDialog.product.in_stock;
+    
+    // Optimistic update - update UI immediately before API call
+    setProducts(prev => prev.map(p => 
+      p.id === productId ? { ...p, in_stock: newStockStatus } : p
+    ));
+    
     try {
       if (confirmDialog.type === 'toggle') {
         await apiPut('/api/products/manage', {
-          id: confirmDialog.product.id,
-          in_stock: !confirmDialog.product.in_stock,
+          id: productId,
+          in_stock: newStockStatus,
         });
       } else if (confirmDialog.type === 'delete') {
         await apiDelete('/api/products/manage', {
-          body: JSON.stringify({ id: confirmDialog.product.id }),
+          body: JSON.stringify({ id: productId }),
         });
+        // Remove from list after successful delete
+        setProducts(prev => prev.filter(p => p.id !== productId));
       }
-      loadProducts();
     } catch (err) {
       console.error('Error:', err);
+      // Revert on error
+      loadProducts();
       alert('Ocorreu um erro. Tente novamente.');
     } finally {
       setConfirmDialog({ isOpen: false, type: 'toggle', product: null, title: '', message: '' });
